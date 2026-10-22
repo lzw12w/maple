@@ -1,16 +1,38 @@
-# lark-channel-bridge
+# Maple
 
-把飞书 / Lark 消息和本地 Claude Code 或 Codex CLI 打通的轻量 bot。用一条命令启动，扫码绑定 PersonalAgent 应用，然后在飞书里和本机编程助手对话，让它读图、处理文件、改代码。
+**Make Agents Personal in Lark End.**
+
+Maple 把你的本地 agent 变成飞书 / Lark 上的 personal agent。把你已经在用的 agent 带进日常对话：给它任务、发送文件、查看进度，再接着上次的上下文继续工作。
+
+Agent 在你的电脑上运行，使用本地工具，并在配置的权限范围内处理文件。飞书 / Lark 提供对话入口；在你授权并配备相应工具后，agent 也可以处理你的飞书资源。
 
 [English README](./README.md)
 
-关于能实现的效果，详情可以阅读[飞书文档](https://larkcommunity.feishu.cn/docx/OaRIdFIRFoLM3xxTmKwcetHqn5e)
+## 为什么做 Maple
 
-## 主要功能
+你的电脑上已经有一个能做事的 agent。Maple 让你在平时沟通、分享信息和协作的飞书里，也能随时找它帮忙。
+
+- **在飞书里使用你的本地 agent。** 从 Claude Code 或 Codex CLI 开始，通过私聊、群里的 @ 或支持的文档评论交代任务。
+- **带着上下文继续工作。** 在已有会话中接着处理任务，也可以切换不同的本地工作空间。
+- **从编程扩展到日常任务。** 让 agent 处理本地文件、分析你发来的材料，或用已安装的工具完成其他工作。
+- **经你授权，处理飞书个人资源。** 配备 lark-cli，并完成相应权限配置和用户授权后，可以处理日历、邮箱、云盘等资源。
+
+比如，发一个文件让它分析，请它修改本地项目，或者授权日历访问后让它查看你的日程。具体能做什么，取决于接入的 agent、工具和权限。
+
+## 项目方向
+
+Maple 正在从 `lark-channel-bridge` 演进为一个让本地 agent 成为飞书 personal agent 的项目。当前实现支持 **Claude Code 和 Codex CLI**；后续方向是接入更多本地 agent、让个人上下文在任务之间延续，以及更深入地融入飞书日常工作流。
+
+当前安装包、CLI 命令和配置路径仍沿用 `lark-channel-bridge` / `.lark-channel` 名称，下面的使用说明也沿用这些现有名称。
+
+关于当前实现的使用效果，可以阅读[飞书文档](https://larkcommunity.feishu.cn/docx/OaRIdFIRFoLM3xxTmKwcetHqn5e)。
+
+## 当前能力
 
 - 在飞书私聊直接发消息，或在群里 `@bot`，把任务转给本机 Claude Code / Codex CLI。
 - **流式卡片**：文本回复和工具调用实时更新在同一张卡片上。
 - **COT 过程消息**：可选先发一条过程消息展示 agent 的阶段性文本和工具调用，再单独发送最终答案。
+- **Claude 进度消息**：需要动手的任务，Claude 在第一次工具调用前先回一条简短确认，随后只在步骤完成、拿到结果、需要决策或遇到阻塞等有意义节点追加进度，Bridge 立即逐条发到当前飞书会话；能直接回答的简单问题不拆条，最终答案始终由 Bridge 自动回传，不依赖 Claude 调用发消息工具。
 - **会话延续**：每个聊天、话题或文档评论有自己的会话，不会互相串。
 - **排队与消息合并**：短时间连续发送的消息会合并处理；任务运行中收到的普通消息会排队到下一轮，`/new`、`/cd`、`/ws use`、`/stop` 这类命令可以中断当前任务。
 - **多工作空间**：用 `/cd` 切换当前项目，用 `/ws` 保存和复用常用项目目录。
@@ -349,8 +371,16 @@ export default createAdapter;
 
 模块不存在、工厂函数不合法、或者 adapter 抛错，都会降级为空操作——遥测永远不会阻止 bridge 启动，也不会打断日志。
 
+## 致谢与上游
+
+Maple 基于 [lark-coding-agent-bridge](https://github.com/zarazhangrui/lark-coding-agent-bridge) 开发，感谢上游贡献者提供的基础。Maple 在此基础上，向“让本地 agent 成为飞书上的 personal agent”的方向持续演进。
+
+项目保留上游 Git 历史、MIT 许可证与原有版权声明。
+
 ## 许可
 
 [MIT](./LICENSE)
 
-<img src="./assets/feedback-group-qr.png" alt="飞书反馈群二维码" width="360">
+下面的二维码来自上游项目，指向上游的反馈群。
+
+<img src="./assets/feedback-group-qr.png" alt="上游项目飞书反馈群二维码" width="360">

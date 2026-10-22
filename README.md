@@ -1,16 +1,38 @@
-# lark-channel-bridge
+# Maple
 
-A lightweight bot that bridges Feishu / Lark messenger with your local Claude Code or Codex CLI. Run one command, scan a QR code to bind a PersonalAgent app, and talk to your local coding agent from chat.
+**Make Agents Personal in Lark End.**
+
+Maple turns your local agent into your personal agent on Feishu / Lark. Bring the agent you already use into your everyday conversations: give it tasks, send files, follow its progress, and pick up where you left off.
+
+Your agent runs on your machine, using its local tools and the files available under its configured permissions. Feishu / Lark provides the conversational interface; with your authorization and the appropriate tools, the agent can also work with your Lark resources.
 
 [中文 README](./README.zh.md)
 
-For a product walkthrough, see the [Feishu document](https://larkcommunity.feishu.cn/docx/OaRIdFIRFoLM3xxTmKwcetHqn5e).
+## Why Maple
 
-## What it does
+You already have a capable agent on your computer. Maple makes it available from Feishu / Lark, where you talk, share information, and coordinate work.
+
+- **Your local agent, available in chat.** Start with Claude Code or Codex CLI and give it tasks from a DM, a group mention, or a supported document comment.
+- **Personal context across conversations.** Continue a task in its existing session and switch between your local workspaces.
+- **Help beyond coding.** Ask your agent to work with local files, analyze material you send, or use its installed tools for everyday tasks.
+- **Your Lark resources, with your authorization.** Use lark-cli to work with resources such as calendar, mail, and drive when the required tools, permissions, and user authorization are available.
+
+For example, you can send a file and ask for an analysis, ask the agent to fix something in a local project, or authorize calendar access and ask it to check your schedule. What it can do depends on the connected agent, its tools, and its permissions.
+
+## Project direction
+
+Maple is evolving from `lark-channel-bridge` into a project for making local agents personal in Lark. The current implementation supports **Claude Code and Codex CLI**. The direction is to support more local agents, carry personal context across tasks, and deepen integration with everyday Lark workflows.
+
+The installation package, CLI commands, and configuration paths currently retain the `lark-channel-bridge` / `.lark-channel` names. The examples below use those existing names.
+
+For a walkthrough of the current implementation, see the [Feishu document](https://larkcommunity.feishu.cn/docx/OaRIdFIRFoLM3xxTmKwcetHqn5e).
+
+## Current capabilities
 
 - Forwards Feishu / Lark messages to local Claude Code or Codex CLI. Send a DM directly, or `@bot` in a group.
 - **Streaming card**: text replies and tool calls update on one Lark card in real time.
 - **COT process messages**: optionally send a process message with agent progress text and tool calls, then send the final answer separately.
+- **Claude progress messages**: for hands-on tasks, Claude first sends a short acknowledgement before its first tool call, then adds progress only on meaningful beats — a step completed, a real result, a decision needed, or a blocker — and the bridge posts each one immediately to the current Lark conversation. Simple answerable questions stay in one message, and the final answer is always returned automatically by the bridge without relying on Claude to invoke a messaging tool.
 - **Session continuity**: each chat, topic, or document comment thread keeps its own session.
 - **Queueing and batching**: messages sent in quick succession are handled together; messages sent during a run are queued for the next turn, while commands like `/new`, `/cd`, `/ws use`, and `/stop` can interrupt the current task.
 - **Multiple workspaces**: use `/cd` to switch the current project, and `/ws` to save and reuse common project directories.
@@ -349,8 +371,16 @@ export default createAdapter;
 
 A missing module, a bad factory, or a throwing adapter all degrade to noop — telemetry can never stop the bridge from starting or break logging.
 
+## Acknowledgements
+
+Maple is based on [lark-coding-agent-bridge](https://github.com/zarazhangrui/lark-coding-agent-bridge). We thank the upstream contributors for the foundation. Maple builds on it to turn local agents into personal agents on Feishu / Lark.
+
+The upstream Git history, MIT license, and original copyright notice are preserved.
+
 ## License
 
 [MIT](./LICENSE)
 
-<img src="./assets/feedback-group-qr.png" alt="Feedback group QR code" width="360">
+The QR code below links to the upstream project's feedback group.
+
+<img src="./assets/feedback-group-qr.png" alt="Upstream project feedback group QR code" width="360">
