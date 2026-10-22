@@ -1,4 +1,5 @@
 import type { AgentEvent } from '../types';
+import { StageMessageParser } from '../stage-message';
 
 interface ContentBlock {
   type: string;
@@ -28,6 +29,13 @@ interface ClaudeRawEvent {
 }
 
 export function* translateEvent(raw: unknown): Generator<AgentEvent> {
+  yield* translateEventWithStageMessages(raw, new StageMessageParser());
+}
+
+export function* translateEventWithStageMessages(
+  raw: unknown,
+  stageMessages: StageMessageParser,
+): Generator<AgentEvent> {
   if (!raw || typeof raw !== 'object') return;
   const evt = raw as ClaudeRawEvent;
 
@@ -44,7 +52,7 @@ export function* translateEvent(raw: unknown): Generator<AgentEvent> {
   if (evt.type === 'assistant' && evt.message?.content) {
     for (const block of evt.message.content) {
       if (block.type === 'text' && typeof block.text === 'string' && block.text) {
-        yield { type: 'text', delta: block.text };
+        yield* stageMessages.push(block.text);
       } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
         yield { type: 'thinking', delta: block.thinking };
       } else if (block.type === 'tool_use' && block.id && block.name) {
@@ -71,6 +79,7 @@ export function* translateEvent(raw: unknown): Generator<AgentEvent> {
   }
 
   if (evt.type === 'result') {
+    yield* stageMessages.finish();
     if (evt.usage) {
       yield {
         type: 'usage',

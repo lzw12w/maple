@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ClaudeAdapter } from '../../../src/agent/claude/adapter.js';
-import { translateEvent } from '../../../src/agent/claude/stream-json.js';
+import { translateEvent, translateEventWithStageMessages } from '../../../src/agent/claude/stream-json.js';
+import { StageMessageParser } from '../../../src/agent/stage-message.js';
 import type { AgentEvent } from '../../../src/agent/types.js';
 
 describe('Claude stream-json translator', () => {
@@ -38,6 +39,31 @@ describe('Claude stream-json translator', () => {
       { type: 'text', delta: 'hello' },
       { type: 'thinking', delta: 'checking' },
       { type: 'tool_use', id: 'tool-1', name: 'Bash', input: { command: 'pwd' } },
+    ]);
+  });
+
+  it('preserves stage-message parser state across raw assistant events', () => {
+    const parser = new StageMessageParser();
+
+    expect([
+      ...translateEventWithStageMessages(
+        { type: 'assistant', message: { content: [{ type: 'text', text: '<stage_mes' }] } },
+        parser,
+      ),
+    ]).toEqual([]);
+    expect([
+      ...translateEventWithStageMessages(
+        {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: 'sage>收到，我先检查。</stage_message>最终答案' }],
+          },
+        },
+        parser,
+      ),
+    ]).toEqual([
+      { type: 'stage_message', content: '收到，我先检查。' },
+      { type: 'text', delta: '最终答案' },
     ]);
   });
 

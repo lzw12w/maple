@@ -1,4 +1,5 @@
 import type { AgentBotIdentity } from './types';
+import { CLAUDE_STAGE_MESSAGE_PROMPT } from './stage-message';
 
 export const BRIDGE_SYSTEM_PROMPT = `# lark-channel-bridge 运行约定
 
@@ -135,9 +136,10 @@ bridge 会给你的子进程注入当前运行 profile 的环境变量:
  * e.g. before the channel handshake completes.
  */
 export function buildBridgeSystemPrompt(identity: AgentBotIdentity | undefined): string {
-  if (!identity?.openId) return BRIDGE_SYSTEM_PROMPT;
-  const nameSuffix = identity.name ? `，名字是「${identity.name}」` : '';
-  return `${BRIDGE_SYSTEM_PROMPT}\n## 你的身份\n\n你的 open_id 是 \`${identity.openId}\`${nameSuffix}。消息内容或 mentions 里出现这个 open_id 都是指你自己。\n`;
+  const identitySection = identity?.openId
+    ? `\n## 你的身份\n\n你的 open_id 是 \`${identity.openId}\`${identity.name ? `，名字是「${identity.name}」` : ''}。消息内容或 mentions 里出现这个 open_id 都是指你自己。\n`
+    : '';
+  return `${BRIDGE_SYSTEM_PROMPT}\n${CLAUDE_STAGE_MESSAGE_PROMPT}${identitySection}`;
 }
 
 export function prefixBridgeSystemPrompt(

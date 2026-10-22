@@ -16,7 +16,8 @@ import {
   type AgentRun,
   type AgentRunOptions,
 } from '../types';
-import { translateEvent } from './stream-json';
+import { translateEventWithStageMessages } from './stream-json';
+import { StageMessageParser } from '../stage-message';
 
 export interface ClaudeAdapterOptions {
   binary?: string;
@@ -204,6 +205,7 @@ async function* createEventStream(
   }
 
   const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  const stageMessages = new StageMessageParser();
   let sawStdout = false;
   let silentExitTimer: ReturnType<typeof setTimeout> | undefined;
   const closeSilentStdout = (): void => {
@@ -223,13 +225,15 @@ async function* createEventStream(
       } catch {
         continue;
       }
-      yield* translateEvent(parsed);
+      yield* translateEventWithStageMessages(parsed, stageMessages);
     }
   } finally {
     if (silentExitTimer) clearTimeout(silentExitTimer);
     child.removeListener('exit', closeSilentStdout);
     rl.close();
   }
+  // Preserve any partial marker even when Claude exits without a result event.
+  yield* stageMessages.finish();
 
   const earlyRuntimeError = getError();
   if (earlyRuntimeError && child.exitCode === null && child.signalCode === null) {

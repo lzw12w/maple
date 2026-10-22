@@ -173,6 +173,76 @@ describe('markdown stream startup failures', () => {
     );
   }, 10_000);
 
+  it('sends a stage message immediately and excludes its tags from the final reply', async () => {
+    const h = await createHarness({
+      agentKind: 'claude',
+      messageReply: 'text',
+      events: [
+        { type: 'stage_message', content: '收到，我先检查相关代码。' },
+        { type: 'text', delta: '最终结论：问题已定位。' },
+        { type: 'done', terminationReason: 'normal' },
+      ],
+    });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(message('om_stage', '请排查问题'));
+    await waitFor(() => h.channel.sent.length === 2);
+
+    expect(h.channel.sent).toHaveLength(2);
+    expect(h.channel.sent[0]?.content).toEqual({ markdown: '收到，我先检查相关代码。' });
+    expect(h.channel.sent[0]?.options).toMatchObject({ replyTo: 'om_stage' });
+    expect(h.channel.sent[1]?.content).toEqual({ markdown: '最终结论：问题已定位。' });
+    expect(JSON.stringify(h.channel.sent)).not.toContain('stage_message');
+  });
+
+  it('sends multiple meaningful progress beats before the final reply', async () => {
+    const h = await createHarness({
+      agentKind: 'claude',
+      messageReply: 'text',
+      events: [
+        { type: 'stage_message', content: '收到，我先看配置。' },
+        { type: 'stage_message', content: '找到了，鉴权来自侧边栏查询。' },
+        { type: 'text', delta: '最终修复方案如下。' },
+        { type: 'done', terminationReason: 'normal' },
+      ],
+    });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(message('om_progress', '请排查并修复'));
+    await waitFor(() => h.channel.sent.length === 3);
+
+    expect(h.channel.sent.map((item) => item.content)).toEqual([
+      { markdown: '收到，我先看配置。' },
+      { markdown: '找到了，鉴权来自侧边栏查询。' },
+      { markdown: '最终修复方案如下。' },
+    ]);
+  });
+
+  it('continues to the final reply when sending the stage message fails', async () => {
+    let calls = 0;
+    const h = await createHarness({
+      agentKind: 'claude',
+      messageReply: 'text',
+      events: [
+        { type: 'stage_message', content: '收到，我先处理。' },
+        { type: 'text', delta: '最终答案仍然送达。' },
+        { type: 'done', terminationReason: 'normal' },
+      ],
+      send: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('stage send failed');
+        return { messageId: 'om_final' };
+      },
+    });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(message('om_stage_fail', '请处理'));
+    await waitFor(() => h.channel.sent.length === 2);
+
+    expect(calls).toBe(2);
+    expect(h.channel.sent[1]?.content).toEqual({ markdown: '最终答案仍然送达。' });
+  });
+
   it('sends one dedicated non-streaming final reply after progress completes', async () => {
     const visibleProgress: string[] = [];
     const h = await createHarness({
@@ -464,7 +534,14 @@ async function createHarness(options: {
     codex: {
       binaryPath: '/usr/local/bin/codex',
     },
-    ...(options.messageReply ? { preferences: { messageReply: options.messageReply } } : {}),
+    ...(options.messageReply
+      ? {
+          preferences: {
+            messageReply: options.messageReply,
+            ...(options.messageReply === 'text' ? { messageReplyMigrated: true } : {}),
+          },
+        }
+      : {}),
   });
   const profileConfig = {
     ...baseProfileConfig,
@@ -475,9 +552,10 @@ async function createHarness(options: {
   };
   const sessions = new SessionStore(join(tmp.profile, 'sessions.json'));
   const workspaces = new WorkspaceStore(join(tmp.profile, 'workspaces.json'));
+  const agentKind = options.agentKind ?? 'codex';
   const agent = new FakeAgentAdapter({
-    id: 'codex',
-    displayName: 'Codex',
+    id: agentKind,
+    displayName: agentKind === 'claude' ? 'Claude Code' : 'Codex',
     events: options.events ?? [
       [
         {

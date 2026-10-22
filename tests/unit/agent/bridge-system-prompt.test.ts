@@ -4,6 +4,7 @@ import {
   buildBridgeSystemPrompt,
   prefixBridgeSystemPrompt,
 } from '../../../src/agent/bridge-system-prompt';
+import { CLAUDE_STAGE_MESSAGE_PROMPT } from '../../../src/agent/stage-message';
 
 describe('bridge system prompt bot collaboration rules', () => {
   it('states that bots only receive messages via a real structured mention', () => {
@@ -40,8 +41,21 @@ describe('bridge system prompt bot collaboration rules', () => {
 });
 
 describe('buildBridgeSystemPrompt', () => {
-  it('returns the base prompt unchanged when no identity is available', () => {
-    expect(buildBridgeSystemPrompt(undefined)).toBe(BRIDGE_SYSTEM_PROMPT);
+  it('appends the stage-message protocol even when no identity is available', () => {
+    const prompt = buildBridgeSystemPrompt(undefined);
+    expect(prompt.startsWith(BRIDGE_SYSTEM_PROMPT)).toBe(true);
+    expect(prompt).toContain(CLAUDE_STAGE_MESSAGE_PROMPT);
+    expect(prompt).toContain('<stage_message>');
+  });
+
+  it('skips progress markers for direct answers and allows several beats on real work', () => {
+    const prompt = buildBridgeSystemPrompt(undefined);
+    expect(prompt).toContain('能直接回答的简单或对话类问题：不要使用标记');
+    expect(prompt).toContain('在第一次工具调用前先发一条简短确认');
+    expect(prompt).toContain('只在有意义的节点追加');
+    expect(prompt).toContain('一轮通常 1～4 条');
+    expect(prompt).toContain('不要逐条播报命令、重试或小的自我纠错');
+    expect(prompt).toContain('最终答案始终由 Bridge 自动发送');
   });
 
   it('appends a concrete identity line with open_id and name', () => {

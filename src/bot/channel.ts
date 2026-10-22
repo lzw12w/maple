@@ -1066,6 +1066,20 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       }
     : {};
 
+  const sendStageMessage = async (content: string): Promise<void> => {
+    const body = content.trim();
+    if (!body) return;
+    const result = await channel.send(chatId, { markdown: body }, sendOpts);
+    requireMessageReceipt(result, 'stage');
+    log.info('outbound', 'stage-sent', {
+      scope,
+      chars: body.length,
+      messageId: result.messageId,
+      replyTo: sendOpts.replyTo,
+      replyInThread: sendOpts.replyInThread === true,
+    });
+  };
+
   // For non-card modes Claude's output doesn't surface visually until either
   // a first streamed token (markdown mode) or the whole run ends (text mode).
   // Add a "Typing" reaction to the triggering message as an instant ack, but
@@ -1099,6 +1113,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           idleTimeoutMs,
           recordSession,
           async () => {},
+          sendStageMessage,
         );
         await cotDone;
         if (cotPublisher.degradedReason) {
@@ -1161,6 +1176,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
             await cardCtrl.update(renderCard(filterForPrefs(state), cardRenderOptions));
           }
         },
+        sendStageMessage,
       );
       try {
         await awaitRenderAwareStream({
@@ -1226,6 +1242,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
             await markdownCtrl.setContent(renderText(filterForPrefs(state)));
           }
         },
+        sendStageMessage,
       );
       try {
         await awaitRenderAwareStream({
@@ -1268,6 +1285,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         idleTimeoutMs,
         recordSession,
         async () => {},
+        sendStageMessage,
       );
       await sendFinalReply({
         channel,
@@ -1554,6 +1572,7 @@ async function processAgentStream(
   idleTimeoutMs: number | undefined,
   recordSession: (event: AgentEvent) => void,
   flush: (state: RunState) => Promise<void>,
+  onStageMessage?: (content: string) => Promise<void>,
 ): Promise<RunState> {
   const runStart = Date.now();
   let state: RunState = initialState;
@@ -1610,6 +1629,17 @@ async function processAgentStream(
       }
       armOrPauseIdle();
 
+      if (evt.type === 'stage_message') {
+        try {
+          await onStageMessage?.(evt.content);
+        } catch (err) {
+          log.warn('outbound', 'stage-message-failed', {
+            scope,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+        continue;
+      }
       if (evt.type === 'system') {
         recordSession(evt);
         continue;
