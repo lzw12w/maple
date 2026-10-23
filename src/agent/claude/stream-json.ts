@@ -1,5 +1,6 @@
 import type { AgentEvent } from '../types';
 import { StageMessageParser } from '../stage-message';
+import type { ClaudeStructuralInterim } from '../interim-messages';
 
 interface ContentBlock {
   type: string;
@@ -19,7 +20,9 @@ interface ClaudeRawEvent {
   session_id?: string;
   cwd?: string;
   model?: string;
-  message?: { content?: ContentBlock[] };
+  message?: { id?: string; content?: ContentBlock[] };
+  /** Set on subagent (Task) output; null/absent for the main session. */
+  parent_tool_use_id?: string | null;
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
@@ -32,9 +35,17 @@ export function* translateEvent(raw: unknown): Generator<AgentEvent> {
   yield* translateEventWithStageMessages(raw, new StageMessageParser());
 }
 
+/**
+ * Translate one stream-json line. `stageMessages` handles the legacy
+ * `<stage_message>` marker protocol; when `structural` is given (interim mode
+ * `structural`), main-session text is routed through it instead so text that
+ * precedes a tool call becomes a `stage_message` and the text left at
+ * `result` becomes `final_text`.
+ */
 export function* translateEventWithStageMessages(
   raw: unknown,
   stageMessages: StageMessageParser,
+  structural?: ClaudeStructuralInterim,
 ): Generator<AgentEvent> {
   if (!raw || typeof raw !== 'object') return;
   const evt = raw as ClaudeRawEvent;
@@ -50,12 +61,15 @@ export function* translateEventWithStageMessages(
   }
 
   if (evt.type === 'assistant' && evt.message?.content) {
+    const main = structural && !evt.parent_tool_use_id ? structural : undefined;
     for (const block of evt.message.content) {
       if (block.type === 'text' && typeof block.text === 'string' && block.text) {
-        yield* stageMessages.push(block.text);
+        if (main) yield* main.text(block.text, evt.message.id);
+        else yield* stageMessages.push(block.text);
       } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking) {
         yield { type: 'thinking', delta: block.thinking };
       } else if (block.type === 'tool_use' && block.id && block.name) {
+        if (main) yield* main.toolUse();
         yield { type: 'tool_use', id: block.id, name: block.name, input: block.input };
       }
     }
@@ -80,6 +94,7 @@ export function* translateEventWithStageMessages(
 
   if (evt.type === 'result') {
     yield* stageMessages.finish();
+    if (structural) yield* structural.final();
     if (evt.usage) {
       yield {
         type: 'usage',

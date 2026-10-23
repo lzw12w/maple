@@ -1,3 +1,4 @@
+import type { InterimMessagesMode } from '../agent/interim-messages';
 import type { AgentCapability } from '../agent/capability';
 import { resolveModelArg } from '../agent/models';
 import type { AgentEvent } from '../agent/types';
@@ -35,6 +36,7 @@ export interface StartRunFlowInput {
   executor: RunExecutor;
   now: number;
   stopGraceMs?: number;
+  interimMessages?: InterimMessagesMode;
   observability?: {
     profile: string;
     agent: string;
@@ -156,6 +158,7 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
               .filter((path): path is string => Boolean(path))
           : undefined,
       stopGraceMs: input.stopGraceMs,
+      interimMessages: input.interimMessages,
       observability: input.observability,
     });
   } catch (err) {

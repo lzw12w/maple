@@ -6,6 +6,7 @@ import { log } from '../../core/logger';
 import { mergeProcessEnv, spawnProcess, type SpawnedProcessByStdio } from '../../platform/spawn';
 import { SpawnFailed } from '../../runtime/errors';
 import { prefixBridgeSystemPrompt } from '../bridge-system-prompt';
+import type { InterimMessagesMode } from '../interim-messages';
 import { buildLarkChannelEnv, type LarkChannelEnvContext } from '../lark-channel-env';
 import { checkAgentAvailability, type AgentAvailability } from '../preflight';
 import type {
@@ -153,13 +154,19 @@ export class CodexAdapter implements AgentAdapter {
     child.stdin.on('error', (err) => {
       log.warn('agent', 'stdin-error', { message: err.message });
     });
-    child.stdin.end(prefixBridgeSystemPrompt(opts.prompt, this.botIdentity), 'utf8');
+    child.stdin.end(prefixBridgeSystemPrompt(opts.prompt, this.botIdentity, opts.interimMessages), 'utf8');
 
     const stopGraceMs = opts.stopGraceMs ?? this.defaultStopGraceMs;
 
     return {
       runId: opts.runId,
-      events: createEventStream(child, stderrChunks, () => runtimeError, () => stopReason),
+      events: createEventStream(
+        child,
+        stderrChunks,
+        () => runtimeError,
+        () => stopReason,
+        opts.interimMessages,
+      ),
       async stop() {
         if (child.exitCode !== null || child.signalCode !== null) return;
         stopReason = 'interrupted';
@@ -208,8 +215,9 @@ async function* createEventStream(
   stderrChunks: Buffer[],
   getError: () => Error | null,
   getStopReason: () => CodexFinishReason | undefined,
+  interimMode?: InterimMessagesMode,
 ): AsyncGenerator<AgentEvent> {
-  const translator = new CodexJsonlTranslator();
+  const translator = new CodexJsonlTranslator({ structuralInterim: interimMode === 'structural' });
   if (!child.pid) {
     const err = getError();
     yield {

@@ -459,6 +459,45 @@ describe('markdown stream startup failures', () => {
     ).toBe(false);
   });
 
+  it('posts Claude structural interim messages before a dedicated final reply', async () => {
+    const visibleProgress: string[] = [];
+    const h = await createHarness({
+      agentKind: 'claude',
+      messageReply: 'markdown',
+      events: [
+        { type: 'stage_message', content: '我先看一下配置文件。' },
+        { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: '/repo/a.ts' } },
+        { type: 'tool_result', id: 'toolu_1', output: 'ok', isError: false },
+        { type: 'final_text', content: 'FINAL_SENTINEL' },
+        { type: 'done', terminationReason: 'normal' },
+      ],
+      stream: async (_chatId, input) => {
+        const producer = (input as {
+          markdown?: (ctrl: { setContent(markdown: string): Promise<void> }) => Promise<void>;
+        }).markdown;
+        await producer?.({
+          setContent: vi.fn(async (markdown: string) => {
+            visibleProgress.push(markdown);
+          }),
+        });
+      },
+    });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(message('om_structural', 'run'));
+    await waitFor(() => h.channel.sent.some((s) => JSON.stringify(s.content).includes('FINAL_SENTINEL')));
+
+    const sent = h.channel.sent.map((s) => JSON.stringify(s.content));
+    const interimIdx = sent.findIndex((s) => s.includes('我先看一下配置文件。'));
+    const finalIdx = sent.findIndex((s) => s.includes('FINAL_SENTINEL'));
+    expect(interimIdx).toBeGreaterThanOrEqual(0);
+    expect(interimIdx).toBeLessThan(finalIdx);
+    expect(sent.filter((s) => s.includes('FINAL_SENTINEL'))).toHaveLength(1);
+    expect(sent.filter((s) => s.includes('我先看一下配置文件。'))).toHaveLength(1);
+    // The progress stream shows the tool, never the held-back final answer.
+    expect(visibleProgress.join('\n')).not.toContain('FINAL_SENTINEL');
+  });
+
   it('sends one dedicated final reply card after progress completes in card mode', async () => {
     const progressCards: unknown[] = [];
     const h = await createHarness({

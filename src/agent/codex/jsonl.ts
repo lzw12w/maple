@@ -1,5 +1,6 @@
 import type { AgentEvent } from '../types';
 import { log } from '../../core/logger';
+import { InterimBudget, stripStageMarkers } from '../interim-messages';
 
 export type CodexFinishReason = 'failed' | 'interrupted' | 'timeout';
 
@@ -8,7 +9,17 @@ export interface ProtocolDriftState {
   anomalies: number;
 }
 
+export interface CodexJsonlTranslatorOptions {
+  /**
+   * Interim mode `structural`: a non-final `agent_message` (one followed by a
+   * tool item or another agent message) becomes a `stage_message` instead of
+   * inline `text`. Abnormal endings still flush the pending message as text.
+   */
+  structuralInterim?: boolean;
+}
+
 export class CodexJsonlTranslator {
+  private readonly interim: InterimBudget | undefined;
   private threadId: string | undefined;
   private terminal = false;
   private lastNonTerminalError: string | undefined;
@@ -18,6 +29,10 @@ export class CodexJsonlTranslator {
     unknownEvents: 0,
     anomalies: 0,
   };
+
+  constructor(opts: CodexJsonlTranslatorOptions = {}) {
+    this.interim = opts.structuralInterim ? new InterimBudget() : undefined;
+  }
 
   translate(raw: unknown): AgentEvent[] {
     if (this.terminal) return [];
@@ -32,7 +47,7 @@ export class CodexJsonlTranslator {
       case 'turn.started':
         return [];
       case 'item.started':
-        return this.prependPendingText(this.translateItemStarted(raw));
+        return this.prependPendingText(this.translateItemStarted(raw), true);
       case 'item.completed':
         return this.translateItemCompleted(raw);
       case 'agent_message':
@@ -135,14 +150,17 @@ export class CodexJsonlTranslator {
     }
     this.startedItems.delete(id);
     const exitCode = numberValue(item.exit_code);
-    return this.prependPendingText([
-      {
-        type: 'tool_result',
-        id,
-        output: stringValue(item.output ?? item.aggregated_output ?? item.stdout) ?? '',
-        isError: exitCode !== undefined && exitCode !== 0,
-      },
-    ]);
+    return this.prependPendingText(
+      [
+        {
+          type: 'tool_result',
+          id,
+          output: stringValue(item.output ?? item.aggregated_output ?? item.stdout) ?? '',
+          isError: exitCode !== undefined && exitCode !== 0,
+        },
+      ],
+      true,
+    );
   }
 
   private translateAgentMessage(raw: Record<string, unknown>): AgentEvent[] {
@@ -155,7 +173,10 @@ export class CodexJsonlTranslator {
     this.terminal = true;
     const events: AgentEvent[] = [];
     if (this.pendingAgentMessage) {
-      events.push({ type: 'final_text', content: this.pendingAgentMessage });
+      // Structural mode: skip a final answer identical to an interim already sent.
+      if (!this.interim?.wasDelivered(this.pendingAgentMessage)) {
+        events.push({ type: 'final_text', content: this.pendingAgentMessage });
+      }
       this.pendingAgentMessage = undefined;
     }
     const usage = recordValue(raw.usage);
@@ -181,18 +202,27 @@ export class CodexJsonlTranslator {
     // commentary and then deliver the second as the final answer — the same
     // words twice. An identical repeat is the same message, not a new one.
     if (message === this.pendingAgentMessage) return [];
-    const events = this.pendingAgentMessage
-      ? [{ type: 'text' as const, delta: this.pendingAgentMessage }]
-      : [];
-    this.pendingAgentMessage = message;
+    const events = this.pendingAgentMessage ? this.flushPending(true) : [];
+    this.pendingAgentMessage = this.interim ? stripStageMarkers(message) : message;
     return events;
   }
 
-  private prependPendingText(events: AgentEvent[]): AgentEvent[] {
+  /**
+   * Flush the held agent message ahead of `events`. `continuation` marks a
+   * flush caused by more work (a tool item) — in structural mode that message
+   * was commentary, so it becomes an interim `stage_message`.
+   */
+  private prependPendingText(events: AgentEvent[], continuation = false): AgentEvent[] {
     if (events.length === 0 || !this.pendingAgentMessage) return events;
+    return [...this.flushPending(continuation), ...events];
+  }
+
+  private flushPending(continuation: boolean): AgentEvent[] {
     const pending = this.pendingAgentMessage;
     this.pendingAgentMessage = undefined;
-    return [{ type: 'text', delta: pending }, ...events];
+    if (!pending) return [];
+    if (continuation && this.interim) return this.interim.interim(pending);
+    return [{ type: 'text', delta: pending }];
   }
 
   private translateTerminalError(raw: Record<string, unknown>, fallback: string): AgentEvent[] {

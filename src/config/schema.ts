@@ -1,3 +1,8 @@
+import {
+  DEFAULT_INTERIM_MESSAGES_MODE,
+  isInterimMessagesMode,
+  type InterimMessagesMode,
+} from '../agent/interim-messages';
 export type TenantBrand = 'feishu' | 'lark';
 
 /**
@@ -122,6 +127,13 @@ export interface AppPreferences {
    */
   cotMessages?: CotMessagesMode | 'on' | 'simple';
   /**
+   * How text the agent writes mid-turn is sent as standalone chat messages:
+   * `structural` (default) — text written before a tool call is posted as
+   * its own message, Hermes-style; `marker` — legacy `<stage_message>`
+   * protocol; `off` — no interim messages.
+   */
+  interimMessages?: InterimMessagesMode;
+  /**
    * Cap on concurrent claude runs across all chats / topics. Excess runs
    * queue FIFO. Default 10. Mostly relevant for topic groups where each
    * topic can spawn its own run; capping protects RAM / token spend.
@@ -224,6 +236,11 @@ export function getCotMessages(cfg: AppConfig): CotMessagesMode {
   if (raw === 'brief' || raw === 'simple') return 'brief';
   if (raw === 'detailed' || raw === 'on') return 'detailed';
   return 'off';
+}
+
+export function getInterimMessagesMode(cfg: AppConfig): InterimMessagesMode {
+  const raw = cfg.preferences?.interimMessages;
+  return isInterimMessagesMode(raw) ? raw : DEFAULT_INTERIM_MESSAGES_MODE;
 }
 
 /** Resolve the max-concurrent-runs preference with default + sanity clamp. */

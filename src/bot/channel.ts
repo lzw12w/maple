@@ -32,6 +32,7 @@ import { tryHandleCommand, type Controls } from '../commands';
 import type { AppConfig } from '../config/schema';
 import {
   getAgentStopGraceMs,
+  getInterimMessagesMode,
   getCotMessages,
   getMaxConcurrentRuns,
   getMessageReplyMode,
@@ -973,6 +974,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     executor,
     now: Date.now(),
     stopGraceMs: getAgentStopGraceMs(controls.cfg),
+    interimMessages: getInterimMessagesMode(controls.cfg),
     observability: {
       profile: controls.profile,
       agent: capability.agentId,
@@ -1139,6 +1141,13 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       log.warn('cot', 'fallback-existing-reply', { reason: 'create-disabled' });
     }
 
+    // Codex always, and Claude in structural interim mode (which reports its
+    // answer as `final_text`), deliver the final answer as its own reply
+    // after the progress stream, so it lands below any interim messages
+    // instead of inside a progress card posted before them.
+    const usesDedicatedFinal = (state: RunState): boolean =>
+      controls.profileConfig.agentKind === 'codex' || state.finalText !== undefined;
+
     if (replyMode === 'card') {
       let latestState: RunState = initialState;
       let producerStarted = false;
@@ -1185,7 +1194,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           renderDone,
           producerStarted: () => producerStarted,
           fallback: async (state) => {
-            if (controls.profileConfig.agentKind === 'codex') return;
+            if (usesDedicatedFinal(state)) return;
             if (renderText(filterForPrefs(state)).trim() === '') return;
             await channel.send(
               chatId,
@@ -1195,11 +1204,11 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           },
         });
       } catch (err) {
-        if (controls.profileConfig.agentKind !== 'codex') throw err;
+        if (!usesDedicatedFinal(latestState)) throw err;
         log.fail('stream', err, { mode: replyMode, step: 'progress-stream' });
       }
       await recallIfEmptyStreamedReply(channel, progress, filterForPrefs(latestState), scope);
-      if (controls.profileConfig.agentKind === 'codex') {
+      if (usesDedicatedFinal(latestState)) {
         await sendFinalReply({
           channel,
           chatId,
@@ -1251,7 +1260,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           renderDone,
           producerStarted: () => producerStarted,
           fallback: async (state) => {
-            if (controls.profileConfig.agentKind === 'codex') return;
+            if (usesDedicatedFinal(state)) return;
             const body = renderText(filterForPrefs(state));
             if (body.trim()) {
               await channel.send(chatId, { markdown: body }, sendOpts);
@@ -1259,11 +1268,11 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           },
         });
       } catch (err) {
-        if (controls.profileConfig.agentKind !== 'codex') throw err;
+        if (!usesDedicatedFinal(latestState)) throw err;
         log.fail('stream', err, { mode: replyMode, step: 'progress-stream' });
       }
       await recallIfEmptyStreamedReply(channel, progress, filterForPrefs(latestState), scope);
-      if (controls.profileConfig.agentKind === 'codex') {
+      if (usesDedicatedFinal(latestState)) {
         await sendFinalReply({
           channel,
           chatId,
@@ -1294,7 +1303,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         state:
           controls.profileConfig.agentKind === 'codex'
             ? finalAnswerOnlyState(filterForPrefs(finalState))
-            : filterForPrefs(finalState),
+            : withFinalTextBlock(filterForPrefs(finalState)),
         replyMode,
         sendOpts,
         cardRenderOptions,
@@ -1398,6 +1407,19 @@ function shouldOpenProgressStream(state: RunState): boolean {
  *
  * Terminal notices are dropped for the same reason — the stream rendered them.
  */
+/**
+ * Text mode for Claude: the answer arrives as `final_text` in structural
+ * interim mode; append it after the tool/text blocks so the single posted
+ * reply still contains it.
+ */
+function withFinalTextBlock(state: RunState): RunState {
+  if (!state.finalText) return state;
+  return {
+    ...state,
+    blocks: [...state.blocks, { kind: 'text', content: state.finalText, streaming: false }],
+  };
+}
+
 function finalReplyState(progress: LazyProgressStream, state: RunState): RunState {
   if (!progress.opened() || progress.abandoned()) return finalAnswerOnlyState(state);
   return {
