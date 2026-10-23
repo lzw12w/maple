@@ -1,4 +1,5 @@
 import type { AgentAvailability } from './preflight';
+import type { InterimMessagesMode } from './interim-messages';
 import type { ClaudePermissionMode, CodexSandboxMode } from '../config/permissions';
 
 export type { ClaudePermissionMode } from '../config/permissions';
@@ -47,6 +48,12 @@ export interface AgentRunOptions {
    * are adapter-specific.
   */
   stopGraceMs?: number;
+  /**
+   * How mid-turn assistant text is surfaced as standalone chat messages (see
+   * `interim-messages.ts`). Undefined keeps the legacy `marker` behavior so
+   * non-IM callers (doc comments, /doctor) are unchanged.
+   */
+  interimMessages?: InterimMessagesMode;
 }
 
 export interface AgentRun {

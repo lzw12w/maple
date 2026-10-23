@@ -1,3 +1,4 @@
+import type { InterimMessagesMode } from '../agent/interim-messages';
 import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, AgentEvent, AgentRun } from '../agent/types';
 import { ActiveRuns, type RunHandle } from '../bot/active-runs';
@@ -23,6 +24,7 @@ export interface SubmitRunInput {
   model?: string;
   images?: readonly string[];
   stopGraceMs?: number;
+  interimMessages?: InterimMessagesMode;
   nowait?: boolean;
   observability?: {
     profile: string;
@@ -104,6 +106,7 @@ export class RunExecutor {
       sandbox: input.policy.sandbox,
       permissionMode: input.policy.permissionMode,
       stopGraceMs: input.stopGraceMs,
+      interimMessages: input.interimMessages,
     };
     let run: AgentRun;
     try {

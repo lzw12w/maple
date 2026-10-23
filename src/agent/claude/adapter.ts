@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { translateEventWithStageMessages } from './stream-json';
 import { StageMessageParser } from '../stage-message';
+import { ClaudeStructuralInterim, type InterimMessagesMode } from '../interim-messages';
 
 export interface ClaudeAdapterOptions {
   binary?: string;
@@ -69,7 +70,9 @@ export class ClaudeAdapter implements AgentAdapter {
     // stream-json response. Pass the prompt via stdin and the appended system
     // prompt via a temp file (the same approach the Codex adapter uses) so no
     // special characters ever reach the shell.
-    const systemPromptFile = writeSystemPromptFile(buildBridgeSystemPrompt(this.botIdentity));
+    const systemPromptFile = writeSystemPromptFile(
+      buildBridgeSystemPrompt(this.botIdentity, opts.interimMessages),
+    );
 
     const args = [
       '-p',
@@ -144,7 +147,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
     return {
       runId: opts.runId,
-      events: createEventStream(child, stderrChunks, () => runtimeError),
+      events: createEventStream(child, stderrChunks, () => runtimeError, opts.interimMessages),
       async stop() {
         if (child.exitCode !== null || child.signalCode !== null) return;
         log.info('agent', 'stop-sigterm', { pid: child.pid ?? null, graceMs: stopGraceMs });
@@ -191,6 +194,7 @@ async function* createEventStream(
   child: ClaudeChild,
   stderrChunks: Buffer[],
   getError: () => Error | null,
+  interimMode?: InterimMessagesMode,
 ): AsyncGenerator<AgentEvent> {
   // If fork itself failed synchronously, child.pid is undefined. The 'error'
   // event (ENOENT etc.) fires in the next tick, so also check getError().
@@ -205,7 +209,9 @@ async function* createEventStream(
   }
 
   const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
-  const stageMessages = new StageMessageParser();
+  // `off`: a zero-budget parser strips stray markers into plain text.
+  const stageMessages = new StageMessageParser(interimMode === 'off' ? 0 : undefined);
+  const structural = interimMode === 'structural' ? new ClaudeStructuralInterim() : undefined;
   let sawStdout = false;
   let silentExitTimer: ReturnType<typeof setTimeout> | undefined;
   const closeSilentStdout = (): void => {
@@ -225,7 +231,7 @@ async function* createEventStream(
       } catch {
         continue;
       }
-      yield* translateEventWithStageMessages(parsed, stageMessages);
+      yield* translateEventWithStageMessages(parsed, stageMessages, structural);
     }
   } finally {
     if (silentExitTimer) clearTimeout(silentExitTimer);
@@ -234,6 +240,7 @@ async function* createEventStream(
   }
   // Preserve any partial marker even when Claude exits without a result event.
   yield* stageMessages.finish();
+  if (structural) yield* structural.finish();
 
   const earlyRuntimeError = getError();
   if (earlyRuntimeError && child.exitCode === null && child.signalCode === null) {

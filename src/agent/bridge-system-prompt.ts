@@ -1,5 +1,6 @@
 import type { AgentBotIdentity } from './types';
 import { CLAUDE_STAGE_MESSAGE_PROMPT } from './stage-message';
+import { STRUCTURAL_INTERIM_PROMPT, type InterimMessagesMode } from './interim-messages';
 
 export const BRIDGE_SYSTEM_PROMPT = `# lark-channel-bridge 运行约定
 
@@ -135,16 +136,26 @@ bridge 会给你的子进程注入当前运行 profile 的环境变量:
  * still references `bridge_context.botOpenId`) when identity is unavailable,
  * e.g. before the channel handshake completes.
  */
-export function buildBridgeSystemPrompt(identity: AgentBotIdentity | undefined): string {
+export function buildBridgeSystemPrompt(
+  identity: AgentBotIdentity | undefined,
+  interimMessages: InterimMessagesMode = 'marker',
+): string {
   const identitySection = identity?.openId
     ? `\n## 你的身份\n\n你的 open_id 是 \`${identity.openId}\`${identity.name ? `，名字是「${identity.name}」` : ''}。消息内容或 mentions 里出现这个 open_id 都是指你自己。\n`
     : '';
-  return `${BRIDGE_SYSTEM_PROMPT}\n${CLAUDE_STAGE_MESSAGE_PROMPT}${identitySection}`;
+  return `${BRIDGE_SYSTEM_PROMPT}\n${interimPromptSection(interimMessages)}${identitySection}`;
+}
+
+function interimPromptSection(mode: InterimMessagesMode): string {
+  if (mode === 'structural') return STRUCTURAL_INTERIM_PROMPT;
+  if (mode === 'off') return '';
+  return CLAUDE_STAGE_MESSAGE_PROMPT;
 }
 
 export function prefixBridgeSystemPrompt(
   prompt: string,
   identity: AgentBotIdentity | undefined,
+  interimMessages?: InterimMessagesMode,
 ): string {
-  return `${buildBridgeSystemPrompt(identity)}\n\n## user_message\n\n${prompt}`;
+  return `${buildBridgeSystemPrompt(identity, interimMessages)}\n\n## user_message\n\n${prompt}`;
 }
